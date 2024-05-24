@@ -19,8 +19,7 @@ pub trait GrindingChallenger:
     }
 }
 
-impl<F, P, const WIDTH: usize, const RATE: usize> GrindingChallenger
-    for DuplexChallenger<F, P, WIDTH, RATE>
+impl<F, P, const WIDTH: usize> GrindingChallenger for DuplexChallenger<F, P, WIDTH>
 where
     F: PrimeField64,
     P: CryptographicPermutation<[F; WIDTH]>,
