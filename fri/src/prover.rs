@@ -4,8 +4,10 @@ use alloc::vec::Vec;
 use itertools::Itertools;
 use p3_challenger::{CanObserve, FieldChallenger, GrindingChallenger};
 use p3_commit::Mmcs;
+use p3_dft::{Radix2Dit, TwoAdicSubgroupDft};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::dense::RowMajorMatrix;
+use p3_util::reverse_slice_index_bits;
 use tracing::{info_span, instrument};
 
 use crate::fold_even_odd::fold_even_odd;
@@ -14,7 +16,7 @@ use crate::{CommitPhaseProofStep, FriConfig, FriProof, QueryProof};
 #[instrument(name = "FRI prover", skip_all)]
 pub fn prove<F, EF, M, Challenger>(
     config: &FriConfig<M>,
-    input: &[Option<Vec<EF>>; 32],
+    input: &mut [Option<Vec<EF>>; 32],
     challenger: &mut Challenger,
 ) -> (FriProof<EF, M, Challenger::Witness>, Vec<usize>)
 where
@@ -44,7 +46,7 @@ where
         FriProof {
             commit_phase_commits: commit_phase_result.commits,
             query_proofs,
-            final_poly: commit_phase_result.final_poly,
+            final_polys: commit_phase_result.final_polys,
             pow_witness,
         },
         query_indices,
@@ -99,43 +101,63 @@ where
     M: Mmcs<EF>,
     Challenger: CanObserve<M::Commitment> + FieldChallenger<F>,
 {
-    let mut current = input[log_max_height].as_ref().unwrap().clone();
+    // let mut current = input[log_max_height].as_ref().unwrap().clone();
 
     let mut commits = vec![];
     let mut data = vec![];
-
-    for log_folded_height in (config.log_blowup..log_max_height).rev() {
-        let leaves = RowMajorMatrix::new(current.clone(), 2);
-        let (commit, prover_data) = config.mmcs.commit_matrix(leaves);
+    let mut current = input[log_max_height].as_ref().unwrap().clone();
+    for log_folded_height in (config.log_blowup..log_max_height)
+        .rev()
+        .step_by(config.log_folding_arity)
+    {
+        let to_fold = (0..config.log_folding_arity)
+            .filter_map(|i| match input[log_folded_height - i].as_ref() {
+                Some(v) => Some((i, v.clone())),
+                None => None,
+            })
+            .collect::<Vec<_>>();
+        let leaves = to_fold
+            .iter()
+            .map(|(i, v)| RowMajorMatrix::new(v.clone(), 1 << (log_folded_height - i)))
+            .collect::<Vec<_>>();
+        let (commit, prover_data) = config.mmcs.commit(leaves);
         challenger.observe(commit.clone());
         commits.push(commit);
         data.push(prover_data);
 
-        let beta: EF = challenger.sample_ext_element();
-        current = fold_even_odd(current, beta);
+        let mut beta: EF = challenger.sample_ext_element();
 
-        if let Some(v) = &input[log_folded_height] {
-            current.iter_mut().zip_eq(v).for_each(|(c, v)| *c += *v);
+        (1..config.log_folding_arity + 1).for_each(|j| {
+            current = fold_even_odd(current.clone(), beta);
+            beta = beta.square();
+            if let Some(v) = &input[log_folded_height - j] {
+                current.iter_mut().zip_eq(v).for_each(|(c, v)| *c += *v);
+            }
+        });
+    }
+
+    reverse_slice_index_bits(&mut current);
+    current = Radix2Dit::default().idft(current);
+    // Now all the polynomials in `input` that are at log_height below `config.log_blowup`+`config.log_max_final_poly_len` are sent in the clear.
+    let mut final_polys = vec![current];
+    (0..config.log_max_final_poly_len + config.log_blowup).for_each(|i| match input[i].as_ref() {
+        Some(v) => {
+            let mut new_vec = v.clone();
+            reverse_slice_index_bits(&mut new_vec);
+            final_polys.push(Radix2Dit::default().idft(new_vec));
         }
-    }
-
-    // We should be left with `blowup` evaluations of a constant polynomial.
-    assert_eq!(current.len(), config.blowup());
-    let final_poly = current[0];
-    for x in current {
-        assert_eq!(x, final_poly);
-    }
-    challenger.observe_ext_element(final_poly);
+        None => {}
+    });
 
     CommitPhaseResult {
         commits,
         data,
-        final_poly,
+        final_polys,
     }
 }
 
 struct CommitPhaseResult<F: Field, M: Mmcs<F>> {
     commits: Vec<M::Commitment>,
     data: Vec<M::ProverData<RowMajorMatrix<F>>>,
-    final_poly: F,
+    final_polys: Vec<Vec<F>>,
 }
