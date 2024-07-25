@@ -7,7 +7,7 @@ use p3_commit::Mmcs;
 use p3_dft::{Radix2Dit, TwoAdicSubgroupDft};
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::dense::RowMajorMatrix;
-use p3_util::reverse_slice_index_bits;
+use p3_util::{log2_strict_usize, reverse_slice_index_bits, split_bits};
 use tracing::{info_span, instrument};
 
 use crate::fold_even_odd::fold_even_odd;
@@ -48,6 +48,7 @@ where
             query_proofs,
             final_polys: commit_phase_result.final_polys,
             pow_witness,
+            log_max_height,
         },
         query_indices,
     )
@@ -64,21 +65,16 @@ where
 {
     let commit_phase_openings = commit_phase_commits
         .iter()
-        .enumerate()
-        .map(|(i, commit)| {
-            let index_i = index >> i;
-            let index_i_sibling = index_i ^ 1;
-            let index_pair = index_i >> 1;
-
-            let (mut opened_rows, opening_proof) = config.mmcs.open_batch(index_pair, commit);
-            assert_eq!(opened_rows.len(), 1);
-            let opened_row = opened_rows.pop().unwrap();
-            assert_eq!(opened_row.len(), 2, "Committed data should be in pairs");
-            let sibling_value = opened_row[index_i_sibling % 2];
-
+        .map(|commit| {
+            let (folded_index, index_in_subgroup) = split_bits(index, config.log_folding_arity);
+            let (mut siblings, proof) = config.mmcs.open_batch(folded_index, commit);
+            for sibs in &mut siblings {
+                let bits_reduced = config.log_folding_arity - log2_strict_usize(sibs.len());
+                sibs.remove(index_in_subgroup >> bits_reduced);
+            }
             CommitPhaseProofStep {
-                sibling_value,
-                opening_proof,
+                siblings,
+                opening_proof: proof,
             }
         })
         .collect();
@@ -148,6 +144,12 @@ where
         }
         None => {}
     });
+
+    for fp in &final_polys {
+        for coeff in fp {
+            challenger.observe_ext_element(*coeff);
+        }
+    }
 
     CommitPhaseResult {
         commits,

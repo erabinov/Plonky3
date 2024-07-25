@@ -4,7 +4,12 @@
 
 extern crate alloc;
 
-use core::hint::unreachable_unchecked;
+use core::{
+    hint::unreachable_unchecked,
+    ops::{BitAnd, Deref, Shl, Shr, Sub},
+};
+
+use alloc::vec::Vec;
 
 pub mod array_serialization;
 pub mod linear_map;
@@ -128,6 +133,8 @@ pub trait VecExt<T> {
     fn pushed_ref(&mut self, elem: T) -> &T;
     /// Push `elem` and return a mutable reference to it.
     fn pushed_mut(&mut self, elem: T) -> &mut T;
+
+    fn extract<F: FnMut(&mut T) -> bool>(&mut self, pred: F) -> ExtractIf<T, F>;
 }
 
 impl<T> VecExt<T> for alloc::vec::Vec<T> {
@@ -139,4 +146,84 @@ impl<T> VecExt<T> for alloc::vec::Vec<T> {
         self.push(elem);
         self.last_mut().unwrap()
     }
+
+    fn extract<F: FnMut(&mut T) -> bool>(&mut self, pred: F) -> ExtractIf<T, F> {
+        ExtractIf {
+            v: self,
+            pred,
+            idx: 0,
+        }
+    }
+}
+pub struct ExtractIf<'a, T, F>
+where
+    F: FnMut(&mut T) -> bool,
+{
+    v: &'a mut Vec<T>,
+    pred: F,
+    idx: usize,
+}
+
+impl<T, F> Iterator for ExtractIf<'_, T, F>
+where
+    F: FnMut(&mut T) -> bool,
+{
+    type Item = T;
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.idx < self.v.len() {
+            if (self.pred)(&mut self.v[self.idx]) {
+                return Some(self.v.remove(self.idx));
+            }
+            self.idx += 1;
+        }
+        None
+    }
+}
+
+impl<T, F> Drop for ExtractIf<'_, T, F>
+where
+    F: FnMut(&mut T) -> bool,
+{
+    fn drop(&mut self) {
+        self.for_each(|_| {})
+    }
+}
+
+pub trait SliceExt {
+    /// `log2(self.len())`. `None` if not a power of two.
+    fn log_len(&self) -> Option<usize>;
+
+    /// `log2_strict_usize(self.len())`.
+    /// Panics if `self.len()` not a power of two.
+    fn log_strict_len(&self) -> usize;
+}
+
+impl<T, S: Deref<Target = [T]>> SliceExt for S {
+    fn log_len(&self) -> Option<usize> {
+        let res = self.len().trailing_zeros();
+        if self.len().wrapping_shr(res) == 1 {
+            Some(res as usize)
+        } else {
+            None
+        }
+    }
+    fn log_strict_len(&self) -> usize {
+        log2_strict_usize(self.len())
+    }
+}
+
+pub fn bitmask<T>(n_bits: T) -> T
+where
+    T: Copy + From<bool> + Shl<T, Output = T> + Sub<T, Output = T>,
+{
+    let one = T::from(true);
+    (one << n_bits) - one
+}
+
+/// (x >> n, x & mask(n))
+pub fn split_bits<T>(x: T, n: usize) -> (T, T)
+where
+    T: Copy + Shr<usize, Output = T> + BitAnd<usize, Output = T>,
+{
+    (x >> n, x & ((1 << n) - 1))
 }

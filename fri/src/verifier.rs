@@ -24,6 +24,7 @@ pub struct FriChallenges<F> {
     pub betas: Vec<F>,
 }
 
+/// Verifies the shape of the proof and samples the challenges.
 pub fn verify_shape_and_sample_challenges<F, EF, M, Challenger>(
     config: &FriConfig<M>,
     proof: &FriProof<EF, M, Challenger::Witness>,
@@ -35,6 +36,7 @@ where
     M: Mmcs<EF>,
     Challenger: GrindingChallenger + CanObserve<M::Commitment> + FieldChallenger<F>,
 {
+    assert!(config.log_max_final_poly_len >= config.log_folding_arity);
     let betas: Vec<EF> = proof
         .commit_phase_commits
         .iter()
@@ -43,7 +45,12 @@ where
             challenger.sample_ext_element()
         })
         .collect();
-    challenger.observe_ext_element(proof.final_poly);
+
+    for fp in &proof.final_polys {
+        for coeff in fp {
+            challenger.observe_ext_element(*coeff);
+        }
+    }
     if proof.query_proofs.len() != config.num_queries {
         return Err(FriError::InvalidProofShape);
     }
@@ -53,10 +60,8 @@ where
         return Err(FriError::InvalidPowWitness);
     }
 
-    let log_max_height = proof.commit_phase_commits.len() + config.log_blowup;
-
     let query_indices: Vec<usize> = (0..config.num_queries)
-        .map(|_| challenger.sample_bits(log_max_height))
+        .map(|_| challenger.sample_bits(proof.log_max_height))
         .collect();
 
     Ok(FriChallenges {
@@ -81,7 +86,7 @@ where
         &proof.query_proofs,
         reduced_openings
     ) {
-        let folded_eval = verify_query(
+        let folded_evals = verify_query(
             config,
             &proof.commit_phase_commits,
             index,
@@ -107,7 +112,7 @@ fn verify_query<F, M>(
     betas: &[F],
     reduced_openings: &[F; 32],
     log_max_height: usize,
-) -> Result<F, FriError<M::Error>>
+) -> Result<Vec<F>, FriError<M::Error>>
 where
     F: TwoAdicField,
     M: Mmcs<F>,
@@ -116,13 +121,10 @@ where
     let mut x = F::two_adic_generator(log_max_height)
         .exp_u64(reverse_bits_len(index, log_max_height) as u64);
 
-    for (log_folded_height, commit, step, &beta) in izip!(
-        (0..log_max_height).rev(),
-        commit_phase_commits,
-        &proof.commit_phase_openings,
-        betas,
-    ) {
-        folded_eval += reduced_openings[log_folded_height + 1];
+    for (i, (commit, step, &beta)) in
+        izip!(commit_phase_commits, &proof.commit_phase_openings, betas).enumerate()
+    {
+        folded_eval += reduced_openings[log_max_height + 1 - i * config.log_folding_arity];
 
         let index_sibling = index ^ 1;
         let index_pair = index >> 1;
