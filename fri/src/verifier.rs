@@ -1,14 +1,14 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use itertools::izip;
+use itertools::{izip, Itertools};
 use p3_challenger::{CanObserve, FieldChallenger, GrindingChallenger};
 use p3_commit::Mmcs;
 use p3_field::{ExtensionField, Field, TwoAdicField};
 use p3_matrix::Dimensions;
-use p3_util::reverse_bits_len;
+use p3_util::{log2_strict_usize, reverse_bits_len, split_bits, VecExt};
 
-use crate::{FriConfig, FriProof, QueryProof};
+use crate::{fold_even_odd_at, FriConfig, FriProof, QueryProof};
 
 #[derive(Debug)]
 pub enum FriError<CommitMmcsErr> {
@@ -96,6 +96,8 @@ where
             log_max_height,
         )?;
 
+        let generator = F::two_adic_generator()
+
         if folded_eval != proof.final_poly {
             return Err(FriError::FinalPolyMismatch);
         }
@@ -110,54 +112,63 @@ fn verify_query<F, M>(
     mut index: usize,
     proof: &QueryProof<F, M>,
     betas: &[F],
-    reduced_openings: &[Option<F>; 32],
+    inputs: Vec<(usize, F)>,
     log_max_height: usize,
 ) -> Result<Vec<F>, FriError<M::Error>>
 where
     F: TwoAdicField,
     M: Mmcs<F>,
 {
-    let mut folded_eval = F::zero();
-    let mut x = F::two_adic_generator(log_max_height)
-        .exp_u64(reverse_bits_len(index, log_max_height) as u64);
-
-    for (i, (commit, step, &beta)) in
-        izip!(commit_phase_commits, &proof.commit_phase_openings, betas).enumerate()
+    // let mut current = input[log_max_height].as_ref().unwrap().clone();
+    let mut steps = izip!(
+        commit_phase_commits,
+        proof.commit_phase_openings.iter(),
+        betas
+    );
+    let folded_eval = F::zero();
+    while let Some(log_height) = inputs
+        .last()
+        .map(|v| v.0)
+        .filter(|&l| l > config.log_blowup + config.log_max_final_poly_len)
     {
-        folded_eval += if let Some(x) = reduced_openings[log_max_height + 1 - i * config.log_folding_arity];
+        let log_folded_height = log_height - config.log_folding_arity;
+        let to_fold = inputs.extract(|v| v.0 > log_folded_height).collect_vec();
 
-        let index_sibling = index ^ 1;
-        let index_pair = index >> 1;
+        let (commit, opening, beta) = steps.next().unwrap();
 
-        let mut evals = vec![folded_eval; 2];
-        evals[index_sibling % 2] = step.sibling_value;
+        let dims = to_fold
+            .iter()
+            .map(|(l, _)| Dimensions {
+                height: 1 << log_folded_height,
+                width: 1 << (l - log_folded_height),
+            })
+            .collect_vec();
 
-        let dims = &[Dimensions {
-            width: 2,
-            height: 1 << log_folded_height,
-        }];
+        let (folded_index, index_in_subgroup) = split_bits(index, config.log_folding_arity);
+        let mut siblings = opening.siblings.clone();
+        for ((_, v), sibs) in izip!(to_fold.iter(), &mut siblings) {
+            let bits_reduced = config.log_folding_arity - log2_strict_usize(sibs.len());
+            sibs.insert(index_in_subgroup >> bits_reduced, *v);
+        }
         config
             .mmcs
             .verify_batch(
                 commit,
-                dims,
-                index_pair,
-                &[evals.clone()],
-                &step.opening_proof,
+                &dims,
+                folded_index,
+                &opening.siblings,
+                &opening.opening_proof,
             )
             .map_err(FriError::CommitPhaseMmcsError)?;
 
-        let mut xs = [x; 2];
-        xs[index_sibling % 2] *= F::two_adic_generator(1);
-        // interpolate and evaluate at beta
-        folded_eval = evals[0] + (beta - xs[0]) * (evals[1] - evals[0]) / (xs[1] - xs[0]);
+        let folded_eval = siblings
+            .into_iter()
+            .map(|sibs| fold_even_odd_at(sibs, folded_index, *beta, log_folded_height))
+            .sum();
+        inputs.push((log_folded_height, folded_eval));
 
-        index = index_pair;
-        x = x.square();
+        index = folded_index;
     }
-
-    debug_assert!(index < config.blowup(), "index was {}", index);
-    debug_assert_eq!(x.exp_power_of_2(config.log_blowup), F::one());
 
     Ok(folded_eval)
 }

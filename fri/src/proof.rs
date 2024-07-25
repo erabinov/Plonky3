@@ -16,7 +16,7 @@ pub struct FriProof<F: Field, M: Mmcs<F>, Witness> {
     // final polynomials.
     pub final_polys: Vec<Vec<F>>,
     pub pow_witness: Witness,
-    pub log_max_height: usize,
+    // pub log_max_height: usize,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

@@ -5,7 +5,7 @@ use p3_field::TwoAdicField;
 use p3_matrix::dense::RowMajorMatrix;
 use p3_matrix::Matrix;
 use p3_maybe_rayon::prelude::*;
-use p3_util::{log2_strict_usize, reverse_slice_index_bits};
+use p3_util::{log2_strict_usize, reverse_bits_len, reverse_slice_index_bits, SliceExt};
 use tracing::instrument;
 
 /// Fold a polynomial
@@ -50,6 +50,43 @@ pub fn fold_even_odd<F: TwoAdicField>(poly: Vec<F>, beta: F) -> Vec<F> {
             (one_half + power) * r0 + (one_half - power) * r1
         })
         .collect()
+}
+
+fn fold_even_odd_pair<F: TwoAdicField>(
+    pair_index: usize,
+    beta: F,
+    (e0, e1): (F, F),
+    log_height: usize,
+) -> F {
+    let subgroup_start = F::two_adic_generator(log_height)
+        .exp_u64(reverse_bits_len(pair_index, log_height - 1) as u64);
+    let mut xs = F::two_adic_generator(1)
+        .shifted_powers(subgroup_start)
+        .take(2)
+        .collect_vec();
+    reverse_slice_index_bits(&mut xs);
+    // interpolate and evaluate at beta
+    e0 + (beta - xs[0]) * (e1 - e0) / (xs[1] - xs[0])
+}
+
+pub fn fold_even_odd_at<F: TwoAdicField>(
+    mut poly: Vec<F>,
+    folded_index: usize,
+    beta: F,
+    log_height: usize,
+) -> F {
+    for i in (0..poly.log_strict_len()).rev() {
+        poly = poly
+            .into_iter()
+            .tuples()
+            .enumerate()
+            .map(|(pair_index, values)| {
+                fold_even_odd_pair(folded_index << i + pair_index, beta, values, log_height)
+            })
+            .collect();
+    }
+    debug_assert!(poly.len() == 1);
+    poly[0]
 }
 
 #[cfg(test)]

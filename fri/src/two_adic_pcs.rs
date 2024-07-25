@@ -274,7 +274,9 @@ where
             }
         }
 
-        let (fri_proof, query_indices) = prover::prove(&self.fri, &reduced_openings, challenger);
+        let reduced_openings = reduced_openings.into_iter().filter_map(|ro| ro).collect();
+
+        let (fri_proof, query_indices) = prover::prove(&self.fri, reduced_openings, challenger);
 
         let query_openings = query_indices
             .into_iter()
