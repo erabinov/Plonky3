@@ -110,7 +110,7 @@ fn verify_query<F, M>(
     mut index: usize,
     proof: &QueryProof<F, M>,
     betas: &[F],
-    reduced_openings: &[F; 32],
+    reduced_openings: &[Option<F>; 32],
     log_max_height: usize,
 ) -> Result<Vec<F>, FriError<M::Error>>
 where
@@ -124,7 +124,7 @@ where
     for (i, (commit, step, &beta)) in
         izip!(commit_phase_commits, &proof.commit_phase_openings, betas).enumerate()
     {
-        folded_eval += reduced_openings[log_max_height + 1 - i * config.log_folding_arity];
+        folded_eval += if let Some(x) = reduced_openings[log_max_height + 1 - i * config.log_folding_arity];
 
         let index_sibling = index ^ 1;
         let index_pair = index >> 1;

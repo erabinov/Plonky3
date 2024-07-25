@@ -102,19 +102,19 @@ where
     let mut commits = vec![];
     let mut data = vec![];
     let mut current = input[log_max_height].as_ref().unwrap().clone();
-    for log_folded_height in (config.log_blowup..log_max_height)
+    for log_top_height in (config.log_blowup + config.log_max_final_poly_len..=log_max_height)
         .rev()
         .step_by(config.log_folding_arity)
     {
         let to_fold = (0..config.log_folding_arity)
-            .filter_map(|i| match input[log_folded_height - i].as_ref() {
+            .filter_map(|i| match input[log_top_height - i].as_ref() {
                 Some(v) => Some((i, v.clone())),
                 None => None,
             })
             .collect::<Vec<_>>();
         let leaves = to_fold
             .iter()
-            .map(|(i, v)| RowMajorMatrix::new(v.clone(), 1 << (log_folded_height - i)))
+            .map(|(i, v)| RowMajorMatrix::new(v.clone(), 1 << (config.log_folding_arity - i)))
             .collect::<Vec<_>>();
         let (commit, prover_data) = config.mmcs.commit(leaves);
         challenger.observe(commit.clone());
@@ -126,7 +126,7 @@ where
         (1..config.log_folding_arity + 1).for_each(|j| {
             current = fold_even_odd(current.clone(), beta);
             beta = beta.square();
-            if let Some(v) = &input[log_folded_height - j] {
+            if let Some(v) = &input[log_top_height - j] {
                 current.iter_mut().zip_eq(v).for_each(|(c, v)| *c += *v);
             }
         });
@@ -134,12 +134,18 @@ where
 
     reverse_slice_index_bits(&mut current);
     current = Radix2Dit::default().idft(current);
+    debug_assert!(current
+        .drain(current.len() << config.log_blowup..)
+        .all(|x| x.is_zero()));
     // Now all the polynomials in `input` that are at log_height below `config.log_blowup`+`config.log_max_final_poly_len` are sent in the clear.
     let mut final_polys = vec![current];
-    (0..config.log_max_final_poly_len + config.log_blowup).for_each(|i| match input[i].as_ref() {
+    (0..=config.log_max_final_poly_len + config.log_blowup).for_each(|i| match input[i].as_ref() {
         Some(v) => {
             let mut new_vec = v.clone();
             reverse_slice_index_bits(&mut new_vec);
+            debug_assert!(new_vec
+                .drain(new_vec.len() << config.log_blowup..)
+                .all(|x| x.is_zero()));
             final_polys.push(Radix2Dit::default().idft(new_vec));
         }
         None => {}
