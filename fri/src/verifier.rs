@@ -74,7 +74,7 @@ pub fn verify_challenges<F, M, Witness>(
     config: &FriConfig<M>,
     proof: &FriProof<F, M, Witness>,
     challenges: &FriChallenges<F>,
-    reduced_openings: &[[F; 32]],
+    mut reduced_openings: Vec<Vec<(usize,F)>>,
 ) -> Result<(), FriError<M::Error>>
 where
     F: TwoAdicField,
@@ -84,7 +84,7 @@ where
     for (&index, query_proof, ro) in izip!(
         &challenges.query_indices,
         &proof.query_proofs,
-        reduced_openings
+        reduced_openings.into_iter()
     ) {
         let folded_evals = verify_query(
             config,
@@ -112,7 +112,7 @@ fn verify_query<F, M>(
     mut index: usize,
     proof: &QueryProof<F, M>,
     betas: &[F],
-    inputs: Vec<(usize, F)>,
+    mut inputs: Vec<(usize, F)>,
     log_max_height: usize,
 ) -> Result<Vec<F>, FriError<M::Error>>
 where
@@ -170,5 +170,5 @@ where
         index = folded_index;
     }
 
-    Ok(folded_eval)
+    Ok(inputs.into_iter().map(|(_, v)| v).collect())
 }
