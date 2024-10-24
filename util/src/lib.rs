@@ -140,3 +140,74 @@ impl<T> VecExt<T> for alloc::vec::Vec<T> {
         self.last_mut().unwrap()
     }
 }
+
+#[cfg(feature = "profile_ops")]
+pub use profile_ops::*;
+
+#[cfg(feature = "profile_ops")]
+pub mod profile_ops {
+    use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};    
+
+    pub static COUNT_BABYBEAR_OPS: AtomicBool = AtomicBool::new(false);
+    pub static IN_BABYBEAR_OPS: AtomicBool = AtomicBool::new(false);
+    pub static BABYBEAR_OPS_ADD_COUNTER: AtomicUsize = AtomicUsize::new(0);
+    pub static BABYBEAR_OPS_SUB_COUNTER: AtomicUsize = AtomicUsize::new(0);
+    pub static BABYBEAR_OPS_MUL_COUNTER: AtomicUsize = AtomicUsize::new(0);
+    pub static BABYBEAR_OPS_DIV_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+    // A function to toggle the global flag
+    pub fn enable_bb_ops_counting(enable: bool) {
+        COUNT_BABYBEAR_OPS.store(enable, Ordering::SeqCst);
+    }
+
+    pub fn get_bb_ops_invocation_count() -> (usize, usize, usize, usize) {
+        (
+            BABYBEAR_OPS_ADD_COUNTER.load(Ordering::SeqCst),
+            BABYBEAR_OPS_SUB_COUNTER.load(Ordering::SeqCst),
+            BABYBEAR_OPS_MUL_COUNTER.load(Ordering::SeqCst),
+            BABYBEAR_OPS_DIV_COUNTER.load(Ordering::SeqCst),
+        )
+    }
+
+    pub static COUNT_EXT_OPS: AtomicBool = AtomicBool::new(false);
+    pub static IN_EXT_OP: AtomicBool = AtomicBool::new(false);
+    pub static EXT_OPS_ADD_COUNTER: AtomicUsize = AtomicUsize::new(0);
+    pub static EXT_OPS_ADD_FIELD_COUNTER: AtomicUsize = AtomicUsize::new(0);
+    pub static EXT_OPS_SUB_COUNTER: AtomicUsize = AtomicUsize::new(0);
+    pub static EXT_OPS_SUB_FIELD_COUNTER: AtomicUsize = AtomicUsize::new(0);
+    pub static EXT_OPS_MUL_COUNTER: AtomicUsize = AtomicUsize::new(0);
+    pub static EXT_OPS_MUL_FIELD_COUNTER: AtomicUsize = AtomicUsize::new(0);
+    pub static EXT_OPS_DIV_COUNTER: AtomicUsize = AtomicUsize::new(0);
+    pub static EXT_OPS_DIV_FIELD_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+    // A function to toggle the global flag
+    pub fn enable_ext_ops_counting(enable: bool) {
+        COUNT_EXT_OPS.store(enable, Ordering::SeqCst);
+    }
+
+    pub fn get_ext_ops_invocation_count() -> (usize, usize, usize, usize, usize, usize, usize, usize) {
+        (
+            EXT_OPS_ADD_COUNTER.load(Ordering::SeqCst),
+            EXT_OPS_ADD_FIELD_COUNTER.load(Ordering::SeqCst),
+            EXT_OPS_SUB_COUNTER.load(Ordering::SeqCst),
+            EXT_OPS_SUB_FIELD_COUNTER.load(Ordering::SeqCst),
+            EXT_OPS_MUL_COUNTER.load(Ordering::SeqCst),
+            EXT_OPS_MUL_FIELD_COUNTER.load(Ordering::SeqCst),
+            EXT_OPS_DIV_COUNTER.load(Ordering::SeqCst),
+            EXT_OPS_DIV_FIELD_COUNTER.load(Ordering::SeqCst),
+        )
+    }
+
+    pub static COUNT_PERMUTE_CALLS: AtomicBool = AtomicBool::new(false);
+    pub static IN_PERMUTE: AtomicBool = AtomicBool::new(false);
+    pub static PERMUTE_CALL_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+    // A function to toggle the global flag
+    pub fn enable_permute_counting(enable: bool) {
+        COUNT_PERMUTE_CALLS.store(enable, Ordering::SeqCst);
+    }
+
+    pub fn get_permute_invocation_count() -> usize {
+        PERMUTE_CALL_COUNTER.load(Ordering::SeqCst)
+    }
+}

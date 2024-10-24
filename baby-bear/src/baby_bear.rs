@@ -7,9 +7,15 @@ use p3_field::{
     exp_1725656503, exp_u64_by_squaring, halve_u32, AbstractField, Field, Packable, PrimeField,
     PrimeField32, PrimeField64, TwoAdicField,
 };
+#[cfg(feature = "profile_ops")]
+use p3_util::{BABYBEAR_OPS_ADD_COUNTER, BABYBEAR_OPS_DIV_COUNTER, BABYBEAR_OPS_MUL_COUNTER, BABYBEAR_OPS_SUB_COUNTER, COUNT_BABYBEAR_OPS, IN_BABYBEAR_OPS, IN_EXT_OP, IN_PERMUTE};
 use rand::distributions::{Distribution, Standard};
 use rand::Rng;
 use serde::{Deserialize, Deserializer, Serialize};
+
+#[cfg(feature = "profile_ops")]
+use core::sync::atomic::Ordering;
+
 
 /// The Baby Bear prime
 /// This is the unique 31-bit prime with the highest possible 2 adicity (27).
@@ -328,11 +334,25 @@ impl Add for BabyBear {
 
     #[inline]
     fn add(self, rhs: Self) -> Self {
+        #[cfg(feature = "profile_ops")]
+        let orig = {
+            if COUNT_BABYBEAR_OPS.load(Ordering::SeqCst) && !IN_EXT_OP.load(Ordering::SeqCst) && !IN_PERMUTE.load(Ordering::SeqCst) && !IN_BABYBEAR_OPS.load(Ordering::SeqCst) {
+                BABYBEAR_OPS_ADD_COUNTER.fetch_add(1, Ordering::SeqCst);
+            }
+            let orig = IN_BABYBEAR_OPS.load(Ordering::SeqCst);
+            IN_BABYBEAR_OPS.store(true, Ordering::SeqCst);
+            orig
+        };
+
         let mut sum = self.value + rhs.value;
         let (corr_sum, over) = sum.overflowing_sub(P);
         if !over {
             sum = corr_sum;
         }
+
+        #[cfg(feature = "profile_ops")]
+        IN_BABYBEAR_OPS.store(orig, Ordering::SeqCst);
+
         Self { value: sum }
     }
 }
@@ -363,9 +383,23 @@ impl Sub for BabyBear {
 
     #[inline]
     fn sub(self, rhs: Self) -> Self {
+        #[cfg(feature = "profile_ops")]
+        let orig = {
+            if COUNT_BABYBEAR_OPS.load(Ordering::SeqCst) && !IN_EXT_OP.load(Ordering::SeqCst) && !IN_PERMUTE.load(Ordering::SeqCst) && !IN_BABYBEAR_OPS.load(Ordering::SeqCst) {
+                BABYBEAR_OPS_SUB_COUNTER.fetch_add(1, Ordering::SeqCst);
+            }
+            let orig = IN_BABYBEAR_OPS.load(Ordering::SeqCst);
+            IN_BABYBEAR_OPS.store(true, Ordering::SeqCst);
+            orig
+        };
+
         let (mut diff, over) = self.value.overflowing_sub(rhs.value);
         let corr = if over { P } else { 0 };
         diff = diff.wrapping_add(corr);
+
+        #[cfg(feature = "profile_ops")]
+        IN_BABYBEAR_OPS.store(orig, Ordering::SeqCst);
+
         BabyBear { value: diff }
     }
 }
@@ -391,7 +425,21 @@ impl Mul for BabyBear {
 
     #[inline]
     fn mul(self, rhs: Self) -> Self {
+        #[cfg(feature = "profile_ops")] 
+        let orig = {
+            if COUNT_BABYBEAR_OPS.load(Ordering::SeqCst) && !IN_EXT_OP.load(Ordering::SeqCst) && !IN_PERMUTE.load(Ordering::SeqCst) && !IN_BABYBEAR_OPS.load(Ordering::SeqCst) {
+                BABYBEAR_OPS_MUL_COUNTER.fetch_add(1, Ordering::SeqCst);
+            }
+            let orig = IN_BABYBEAR_OPS.load(Ordering::SeqCst);
+            IN_BABYBEAR_OPS.store(true, Ordering::SeqCst);
+            orig
+        };
+
         let long_prod = self.value as u64 * rhs.value as u64;
+
+        #[cfg(feature = "profile_ops")]
+        IN_BABYBEAR_OPS.store(orig, Ordering::SeqCst);
+
         Self {
             value: monty_reduce(long_prod),
         }
@@ -418,7 +466,22 @@ impl Div for BabyBear {
     #[allow(clippy::suspicious_arithmetic_impl)]
     #[inline]
     fn div(self, rhs: Self) -> Self {
-        self * rhs.inverse()
+        #[cfg(feature = "profile_ops")] 
+        let orig = {
+            if COUNT_BABYBEAR_OPS.load(Ordering::SeqCst) && !IN_EXT_OP.load(Ordering::SeqCst) && !IN_PERMUTE.load(Ordering::SeqCst) && !IN_BABYBEAR_OPS.load(Ordering::SeqCst) {
+                BABYBEAR_OPS_DIV_COUNTER.fetch_add(1, Ordering::SeqCst);
+            }
+            let orig = IN_BABYBEAR_OPS.load(Ordering::SeqCst);
+            IN_BABYBEAR_OPS.store(true, Ordering::SeqCst);
+            orig
+        };
+
+        let res = self * rhs.inverse();
+
+        #[cfg(feature = "profile_ops")]
+        IN_BABYBEAR_OPS.store(orig, Ordering::SeqCst);
+
+        res
     }
 }
 

@@ -4,11 +4,15 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
+[features]
+profile_ops = ["p3-util/profile_ops"]
+
 [dependencies]
 gcd = "2.3.0"
 p3-field = { path = "../field" }
 p3-symmetric = { path = "../symmetric" }
 p3-mds = { path = "../mds" }
+p3-util = { path = "../util" }
 rand = { version = "0.8.5", features = ["min_const_gen"] }
 
 [dev-dependencies]

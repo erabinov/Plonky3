@@ -4,7 +4,7 @@
 //! - https://github.com/HorizenLabs/poseidon2/blob/main/plain_implementations/src/poseidon2/poseidon2.rs
 //! - https://eprint.iacr.org/2023/323.pdf
 
-#![no_std]
+// #![no_std]
 
 extern crate alloc;
 
@@ -17,9 +17,13 @@ pub use diffusion::{matmul_internal, DiffusionPermutation};
 pub use matrix::*;
 use p3_field::{AbstractField, PrimeField, PrimeField64};
 use p3_symmetric::{CryptographicPermutation, Permutation};
+#[cfg(feature = "profile_ops")]
+use p3_util::{COUNT_PERMUTE_CALLS, IN_PERMUTE, PERMUTE_CALL_COUNTER};
 use rand::distributions::{Distribution, Standard};
 use rand::Rng;
 pub use round_numbers::poseidon2_round_numbers_128;
+#[cfg(feature = "profile_ops")]
+use core::sync::atomic::Ordering;
 
 const SUPPORTED_WIDTHS: [usize; 8] = [2, 3, 4, 8, 12, 16, 20, 24];
 
@@ -168,6 +172,16 @@ where
     Diffusion: DiffusionPermutation<AF, WIDTH>,
 {
     fn permute_mut(&self, state: &mut [AF; WIDTH]) {
+        #[cfg(feature = "profile_ops")]
+        let orig = {
+            if COUNT_PERMUTE_CALLS.load(Ordering::SeqCst) && !IN_PERMUTE.load(Ordering::SeqCst) {
+                PERMUTE_CALL_COUNTER.fetch_add(1, Ordering::SeqCst);
+            }
+            let orig = IN_PERMUTE.load(Ordering::SeqCst);
+            IN_PERMUTE.store(true, Ordering::SeqCst);
+            orig
+        };
+
         // The initial linear layer.
         self.external_linear_layer.permute_mut(state);
 
@@ -192,6 +206,9 @@ where
             self.sbox(state);
             self.external_linear_layer.permute_mut(state);
         }
+
+        #[cfg(feature = "profile_ops")]
+        IN_PERMUTE.store(orig, Ordering::SeqCst);
     }
 }
 

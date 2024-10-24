@@ -1,5 +1,8 @@
 use alloc::format;
 use alloc::string::ToString;
+
+#[cfg(feature = "profile_ops")]
+use p3_util::{COUNT_EXT_OPS, EXT_OPS_ADD_COUNTER, EXT_OPS_ADD_FIELD_COUNTER, EXT_OPS_DIV_COUNTER, EXT_OPS_MUL_COUNTER, EXT_OPS_MUL_FIELD_COUNTER, EXT_OPS_SUB_COUNTER, EXT_OPS_SUB_FIELD_COUNTER, IN_EXT_OP, IN_PERMUTE};
 use core::array;
 use core::fmt::{self, Debug, Display, Formatter};
 use core::iter::{Product, Sum};
@@ -17,6 +20,9 @@ use crate::field::Field;
 use crate::{
     field_to_array, AbstractExtensionField, AbstractField, ExtensionField, Packable, TwoAdicField,
 };
+
+#[cfg(feature = "profile_ops")]
+use core::sync::atomic::Ordering;
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Serialize, Deserialize)]
 #[repr(C)]
@@ -258,6 +264,7 @@ where
     }
 }
 
+
 impl<AF, const D: usize> Neg for BinomialExtensionField<AF, D>
 where
     AF: AbstractField,
@@ -282,10 +289,24 @@ where
 
     #[inline]
     fn add(self, rhs: Self) -> Self {
+        #[cfg(feature = "profile_ops")]
+        let orig = {
+            if COUNT_EXT_OPS.load(Ordering::SeqCst) && !IN_EXT_OP.load(Ordering::SeqCst) && !IN_PERMUTE.load(Ordering::SeqCst) {
+                EXT_OPS_ADD_COUNTER.fetch_add(1, Ordering::SeqCst);
+            }
+            let orig = IN_EXT_OP.load(Ordering::SeqCst);
+            IN_EXT_OP.store(true, Ordering::SeqCst);
+            orig
+        };
+
         let mut res = self.value;
         for (r, rhs_val) in res.iter_mut().zip(rhs.value) {
             *r += rhs_val;
         }
+
+        #[cfg(feature = "profile_ops")]
+        IN_EXT_OP.store(orig, Ordering::SeqCst);
+
         Self { value: res }
     }
 }
@@ -299,8 +320,22 @@ where
 
     #[inline]
     fn add(self, rhs: AF) -> Self {
+        #[cfg(feature = "profile_ops")]
+        let orig = {
+            if COUNT_EXT_OPS.load(Ordering::SeqCst) && !IN_EXT_OP.load(Ordering::SeqCst) && !IN_PERMUTE.load(Ordering::SeqCst) {
+                EXT_OPS_ADD_FIELD_COUNTER.fetch_add(1, Ordering::SeqCst);
+            }
+            let orig = IN_EXT_OP.load(Ordering::SeqCst);
+            IN_EXT_OP.store(true, Ordering::SeqCst);
+            orig
+        };
+
         let mut res = self.value;
         res[0] += rhs;
+
+        #[cfg(feature = "profile_ops")]
+        IN_EXT_OP.store(orig, Ordering::SeqCst);
+
         Self { value: res }
     }
 }
@@ -347,10 +382,25 @@ where
 
     #[inline]
     fn sub(self, rhs: Self) -> Self {
+        #[cfg(feature = "profile_ops")]
+        let orig = {
+            if COUNT_EXT_OPS.load(Ordering::SeqCst) && !IN_EXT_OP.load(Ordering::SeqCst) && !IN_PERMUTE.load(Ordering::SeqCst) {
+                EXT_OPS_SUB_COUNTER.fetch_add(1, Ordering::SeqCst);
+            }
+            let orig = IN_EXT_OP.load(Ordering::SeqCst);
+            IN_EXT_OP.store(true, Ordering::SeqCst);
+            orig
+        };
+
+    
         let mut res = self.value;
         for (r, rhs_val) in res.iter_mut().zip(rhs.value) {
             *r -= rhs_val;
         }
+
+        #[cfg(feature = "profile_ops")]
+        IN_EXT_OP.store(orig, Ordering::SeqCst);
+
         Self { value: res }
     }
 }
@@ -364,8 +414,22 @@ where
 
     #[inline]
     fn sub(self, rhs: AF) -> Self {
+        #[cfg(feature = "profile_ops")]
+        let orig = {
+            if COUNT_EXT_OPS.load(Ordering::SeqCst) && !IN_EXT_OP.load(Ordering::SeqCst) && !IN_PERMUTE.load(Ordering::SeqCst) {
+                EXT_OPS_SUB_FIELD_COUNTER.fetch_add(1, Ordering::SeqCst);
+            }
+            let orig = IN_EXT_OP.load(Ordering::SeqCst);
+            IN_EXT_OP.store(true, Ordering::SeqCst);
+            orig
+        };
+
         let mut res = self.value;
         res[0] -= rhs;
+
+        #[cfg(feature = "profile_ops")]
+        IN_EXT_OP.store(orig, Ordering::SeqCst);
+
         Self { value: res }
     }
 }
@@ -401,12 +465,22 @@ where
 
     #[inline]
     fn mul(self, rhs: Self) -> Self {
+        #[cfg(feature = "profile_ops")]
+        let orig = {
+            if COUNT_EXT_OPS.load(Ordering::SeqCst) && !IN_EXT_OP.load(Ordering::SeqCst) && !IN_PERMUTE.load(Ordering::SeqCst) {
+                EXT_OPS_MUL_COUNTER.fetch_add(1, Ordering::SeqCst);
+            }
+            let orig = IN_EXT_OP.load(Ordering::SeqCst);
+            IN_EXT_OP.store(true, Ordering::SeqCst);
+            orig
+        };
+
         let a = self.value;
         let b = rhs.value;
         let w = AF::F::w();
         let w_af = AF::from_f(w);
 
-        match D {
+        let res = match D {
             2 => {
                 let mut res = Self::default();
                 res.value[0] = a[0].clone() * b[0].clone() + a[1].clone() * w_af * b[1].clone();
@@ -430,7 +504,12 @@ where
                 }
                 res
             }
-        }
+        };
+
+        #[cfg(feature = "profile_ops")]
+        IN_EXT_OP.store(orig, Ordering::SeqCst);
+
+        res
     }
 }
 
@@ -443,9 +522,24 @@ where
 
     #[inline]
     fn mul(self, rhs: AF) -> Self {
-        Self {
+        #[cfg(feature = "profile_ops")]
+        let orig = {
+            if COUNT_EXT_OPS.load(Ordering::SeqCst) && !IN_EXT_OP.load(Ordering::SeqCst) && !IN_PERMUTE.load(Ordering::SeqCst) {
+                EXT_OPS_MUL_FIELD_COUNTER.fetch_add(1, Ordering::SeqCst);
+            }
+            let orig = IN_EXT_OP.load(Ordering::SeqCst);
+            IN_EXT_OP.store(true, Ordering::SeqCst);
+            orig
+        };
+
+        let res = Self {
             value: self.value.map(|x| x * rhs.clone()),
-        }
+        };
+
+        #[cfg(feature = "profile_ops")]
+        IN_EXT_OP.store(orig, Ordering::SeqCst);
+
+        res
     }
 }
 
@@ -470,7 +564,22 @@ where
 
     #[allow(clippy::suspicious_arithmetic_impl)]
     fn div(self, rhs: Self) -> Self::Output {
-        self * rhs.inverse()
+        #[cfg(feature = "profile_ops")]
+        let orig = {
+            if COUNT_EXT_OPS.load(Ordering::SeqCst) && !IN_EXT_OP.load(Ordering::SeqCst) && !IN_PERMUTE.load(Ordering::SeqCst) {
+                EXT_OPS_DIV_COUNTER.fetch_add(1, Ordering::SeqCst);
+            }
+            let orig = IN_EXT_OP.load(Ordering::SeqCst);
+            IN_EXT_OP.store(true, Ordering::SeqCst);
+            orig
+        };
+
+        let res = self * rhs.inverse();
+
+        #[cfg(feature = "profile_ops")]
+        IN_EXT_OP.store(orig, Ordering::SeqCst);
+
+        res
     }
 }
 
