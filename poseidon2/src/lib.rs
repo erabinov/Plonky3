@@ -172,15 +172,15 @@ where
     Diffusion: DiffusionPermutation<AF, WIDTH>,
 {
     fn permute_mut(&self, state: &mut [AF; WIDTH]) {
-        #[cfg(feature = "profile_ops")]
-        let orig = {
-            if COUNT_PERMUTE_CALLS.load(Ordering::SeqCst) && !IN_PERMUTE.load(Ordering::SeqCst) {
-                PERMUTE_CALL_COUNTER.fetch_add(1, Ordering::SeqCst);
-            }
-            let orig = IN_PERMUTE.load(Ordering::SeqCst);
-            IN_PERMUTE.store(true, Ordering::SeqCst);
-            orig
-        };
+        // #[cfg(feature = "profile_ops")]
+        // let orig = {
+        //     if COUNT_PERMUTE_CALLS.load(Ordering::SeqCst) && !IN_PERMUTE.load(Ordering::SeqCst) {
+        //         PERMUTE_CALL_COUNTER.fetch_add(1, Ordering::SeqCst);
+        //     }
+        //     let orig = IN_PERMUTE.load(Ordering::SeqCst);
+        //     IN_PERMUTE.store(true, Ordering::SeqCst);
+        //     orig
+        // };
 
         // The initial linear layer.
         self.external_linear_layer.permute_mut(state);
@@ -207,8 +207,8 @@ where
             self.external_linear_layer.permute_mut(state);
         }
 
-        #[cfg(feature = "profile_ops")]
-        IN_PERMUTE.store(orig, Ordering::SeqCst);
+        // #[cfg(feature = "profile_ops")]
+        // IN_PERMUTE.store(orig, Ordering::SeqCst);
     }
 }
 
