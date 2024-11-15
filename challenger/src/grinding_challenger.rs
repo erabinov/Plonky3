@@ -52,7 +52,7 @@ where
     #[instrument(name = "grind for proof-of-work witness", skip_all)]
     fn grind(&mut self, bits: usize) -> Self::Witness {
         let chunk_size = 1 << 20;
-        let witness = (0..F::ORDER_U64.div_ceil(1 << 10))
+        let witness = (0..F::ORDER_U64.div_ceil(chunk_size))
             .into_par_iter()
             .flat_map(|i| {
                 (0..chunk_size)
