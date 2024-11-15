@@ -1,4 +1,4 @@
-use itertools::Itertools;
+use alloc::vec::Vec;
 use p3_field::{Field, PrimeField, PrimeField32, PrimeField64};
 use p3_symmetric::CryptographicPermutation;
 use rayon::prelude::*;
@@ -51,10 +51,14 @@ where
 
     #[instrument(name = "grind for proof-of-work witness", skip_all)]
     fn grind(&mut self, bits: usize) -> Self::Witness {
-        let witness = (0..F::ORDER_U64)
-            .chunks(1 << 10)
+        let chunk_size = 1 << 10;
+        let witness = (0..F::ORDER_U64.div_ceil(1 << 10))
             .into_par_iter()
-            .map(F::from_canonical_u64)
+            .flat_map(|i| {
+                (0..chunk_size)
+                    .map(|j| F::from_canonical_u64(i * chunk_size as u64 + j))
+                    .collect::<Vec<_>>()
+            })
             .find_any(|witness| self.clone().check_witness(bits, *witness))
             .expect("failed to find witness");
         assert!(self.check_witness(bits, witness));
