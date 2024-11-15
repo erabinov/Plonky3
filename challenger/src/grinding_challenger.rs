@@ -1,6 +1,7 @@
+use itertools::Itertools;
 use p3_field::{Field, PrimeField, PrimeField32, PrimeField64};
-use p3_maybe_rayon::prelude::*;
 use p3_symmetric::CryptographicPermutation;
+use rayon::prelude::*;
 use tracing::instrument;
 
 use crate::{CanObserve, CanSampleBits, DuplexChallenger, MultiField32Challenger};
@@ -51,6 +52,7 @@ where
     #[instrument(name = "grind for proof-of-work witness", skip_all)]
     fn grind(&mut self, bits: usize) -> Self::Witness {
         let witness = (0..F::ORDER_U64)
+            .chunks(1 << 10)
             .into_par_iter()
             .map(F::from_canonical_u64)
             .find_any(|witness| self.clone().check_witness(bits, *witness))
