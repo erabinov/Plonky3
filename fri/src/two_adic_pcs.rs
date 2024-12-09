@@ -190,9 +190,6 @@ where
 
         */
 
-        // Batch combination challenge
-        let alpha: Challenge = challenger.sample();
-
         let mats_and_points = rounds
             .iter()
             .map(|(data, points)| {
@@ -211,47 +208,76 @@ where
             .flat_map(|(mats, _)| mats)
             .collect_vec();
 
-        let global_max_width = mats.iter().map(|m| m.width()).max().unwrap();
         let global_max_height = mats.iter().map(|m| m.height()).max().unwrap();
         let log_global_max_height = log2_strict_usize(global_max_height);
 
-        let alpha_reducer = PowersReducer::<Val, Challenge>::new(alpha, global_max_width);
-
         // For each unique opening point z, we will find the largest degree bound
-        // for that point, and precompute 1/(X - z) for the largest subgroup (in bitrev order).
+        // for that point, and precompute 1/(z - X) for the largest subgroup (in bitrev order).
         let inv_denoms = compute_inverse_denominators(&mats_and_points, Val::generator());
 
-        let mut all_opened_values: OpenedValues<Challenge> = vec![];
-        let mut reduced_openings: [_; 32] = core::array::from_fn(|_| None);
-        let mut num_reduced = [0; 32];
+        // Evaluate coset representations and write openings to the challenger
+        let all_opened_values = mats_and_points
+            .iter()
+            .map(|(mats, points)| {
+                izip!(mats.iter(), points.iter())
+                    .map(|(mat, points_for_mat)| {
+                        points_for_mat
+                            .iter()
+                            .map(|&point| {
+                                let _guard =
+                                    info_span!("evaluate matrix", dims = %mat.dimensions())
+                                        .entered();
 
-        for (mats, points) in mats_and_points {
-            let opened_values_for_round = all_opened_values.pushed_mut(vec![]);
-            for (mat, points_for_mat) in izip!(mats, points) {
+                                // Use Barycentric interpolation to evaluate the matrix at the given point.
+                                let ys =
+                                    info_span!("compute opened values with Lagrange interpolation")
+                                        .in_scope(|| {
+                                            let h = mat.height() >> self.fri.log_blowup;
+                                            let (low_coset, _) = mat.split_rows(h);
+                                            let mut inv_denoms =
+                                                inv_denoms.get(&point).unwrap()[..h].to_vec();
+                                            reverse_slice_index_bits(&mut inv_denoms);
+                                            interpolate_coset(
+                                                &BitReversalPerm::new_view(low_coset),
+                                                Val::generator(),
+                                                point,
+                                            )
+                                        });
+                                ys.iter().for_each(|&y| challenger.observe_ext_element(y));
+                                ys
+                            })
+                            .collect_vec()
+                    })
+                    .collect_vec()
+            })
+            .collect_vec();
+
+        // Batch combination challenge
+        let alpha: Challenge = challenger.sample_ext_element();
+
+        let global_max_width = mats.iter().map(|m| m.width()).max().unwrap();
+        let alpha_reducer = PowersReducer::<Val, Challenge>::new(alpha, global_max_width);
+
+        let mut num_reduced = [0; 32];
+        let mut reduced_openings: [_; 32] = core::array::from_fn(|_| None);
+
+        for ((mats, points), openings_for_round) in
+            mats_and_points.iter().zip(all_opened_values.iter())
+        {
+            for (mat, points_for_mat, openings_for_mat) in
+                izip!(mats.iter(), points.iter(), openings_for_round.iter())
+            {
+                let _guard =
+                    info_span!("reduce matrix quotient", dims = %mat.dimensions()).entered();
+
                 let log_height = log2_strict_usize(mat.height());
                 let reduced_opening_for_log_height = reduced_openings[log_height]
                     .get_or_insert_with(|| vec![Challenge::zero(); mat.height()]);
                 debug_assert_eq!(reduced_opening_for_log_height.len(), mat.height());
 
-                let opened_values_for_mat = opened_values_for_round.pushed_mut(vec![]);
-                for &point in points_for_mat {
-                    let _guard =
-                        info_span!("reduce matrix quotient", dims = %mat.dimensions()).entered();
-
-                    // Use Barycentric interpolation to evaluate the matrix at the given point.
-                    let ys = info_span!("compute opened values with Lagrange interpolation")
-                        .in_scope(|| {
-                            let (low_coset, _) =
-                                mat.split_rows(mat.height() >> self.fri.log_blowup);
-                            interpolate_coset(
-                                &BitReversalPerm::new_view(low_coset),
-                                Val::generator(),
-                                point,
-                            )
-                        });
-
+                for (&point, openings) in points_for_mat.iter().zip(openings_for_mat) {
                     let alpha_pow_offset = alpha.exp_u64(num_reduced[log_height] as u64);
-                    let sum_alpha_pows_times_y = alpha_reducer.reduce_ext(&ys);
+                    let sum_alpha_pows_times_y = alpha_reducer.reduce_ext(&openings);
 
                     info_span!("reduce rows").in_scope(|| {
                         reduced_opening_for_log_height
@@ -269,7 +295,6 @@ where
                     });
 
                     num_reduced[log_height] += mat.width();
-                    opened_values_for_mat.push(ys);
                 }
             }
         }
@@ -326,6 +351,16 @@ where
         proof: &Self::Proof,
         challenger: &mut Challenger,
     ) -> Result<(), Self::Error> {
+        // Write evaluations to challenger
+        for (_, round) in rounds.iter() {
+            for (_, mat) in round.iter() {
+                for (_, point) in mat.iter() {
+                    point
+                        .iter()
+                        .for_each(|&opening| challenger.observe_ext_element(opening));
+                }
+            }
+        }
         // Batch combination challenge
         let alpha: Challenge = challenger.sample();
 
