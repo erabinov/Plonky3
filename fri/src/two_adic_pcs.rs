@@ -215,7 +215,7 @@ where
         // for that point, and precompute 1/(z - X) for the largest subgroup (in bitrev order).
         let inv_denoms = compute_inverse_denominators(&mats_and_points, Val::generator());
 
-        // Evaluate coset representations and write openings to the challenger
+        // Evaluate coset representations and write openings to the challenger.
         let all_opened_values = mats_and_points
             .iter()
             .map(|(mats, points)| {
@@ -252,7 +252,7 @@ where
             })
             .collect_vec();
 
-        // Batch combination challenge
+        // Batch combination challenge.
         let alpha: Challenge = challenger.sample_ext_element();
 
         let global_max_width = mats.iter().map(|m| m.width()).max().unwrap();
@@ -351,7 +351,7 @@ where
         proof: &Self::Proof,
         challenger: &mut Challenger,
     ) -> Result<(), Self::Error> {
-        // Write evaluations to challenger
+        // Write evaluations to challenger.
         for (_, round) in rounds.iter() {
             for (_, mat) in round.iter() {
                 for (_, point) in mat.iter() {
